@@ -1,0 +1,20 @@
+
+executables:
+  avl-example:
+    main: Example.hs
+    dependencies:
+      - base
+      - AVL
+      - containers
+      - exceptions
+      - hashable
+      - mtl
+    default-extensions:
+      - DeriveGeneric
+      - FlexibleInstances
+      - MultiParamTypeClasses
+      - ViewPatterns
+      - FlexibleContexts
+      - TypeApplications
+      - ConstraintKinds
+      - MonoLocalBinds
