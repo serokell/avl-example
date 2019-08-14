@@ -17,7 +17,7 @@
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver: lts-13.23
+resolver: lts-14.0
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -39,7 +39,7 @@ packages:
 # (e.g., acme-missiles-0.3)
 extra-deps:
 - git: https://github.com/serokell/avl-plus.git
-  commit: 5415cd7438bd455e5e66599da9d21df78ac7278b
+  commit: 923b6baab32cc94615933893cea4112e2d8cd6e2
 - git: https://github.com/serokell/zipp.git
   commit: 3c55c887845a01d12874264bf0af1cb21f9e6d5f
 
