@@ -130,9 +130,12 @@ instance Hashable a => AVL.ProvidesHash a Hash where
 
   You can add gas costs or make it into some opcode VM, if you like.
 
-  The block can be modelled as another type of transaction, where you apply "normal" transactions and check Proof-of-Work or Proof-of-Stake.
+  The block can be modelled as another type of transaction, where you apply
+  "normal" transactions and check Proof-of-Work or Proof-of-Stake.
 
-  The generation of Work/Stake proofs is out of scope for this library and this example. The "proof" in this text means "AVL+-proof", which is completely different thing.
+  The generation of Work/Stake proofs is out of scope for this library and this
+  example. The "proof" in this text means "AVL+-proof", which is completely
+  different thing.
 -}
 
 data Transaction
@@ -212,12 +215,15 @@ interpret tx = case tx of
   And we're done with the business-logic part!
 
   Let's see what can we do with all the things we declared above. The first
-  opetation is to `recordProof` of the transaction, so I can be run on any node,
-  even the one without any storage.
+  opetation is to `recordProof` of the transaction, so it can be run on any
+  node, even the one without any storage.
+
+  The `recordProof` should only be run on full-state node, of course.
 
   The proof is an excerpt from the storage with a size < `O(log2(N) * Changes)`,
   where `Changes` is a count of key-value pairs that were either written or
-  read. If there is 1 G of key-value pairs and 20 were changed, the proof would contain below 20 * 30 tree nodes.
+  read. If there is 1 G of key-value pairs and 20 were changed, the proof would
+  contain below 20 * 30 tree nodes.
 
   Recording produces a `Proven` transaction along with evaluation result (if
   any). The `Proven` datatype is exported openly and is `Generic`, so you can
@@ -247,7 +253,7 @@ consumeTxs txs = do
 
 {-
   Third thing is to roll back; and yes, we do it with the same interpreter we
-  _commit_ the transaction. The interpreter is needed because we need to be
+  _apply_ the transaction. The interpreter is needed because we need to be
   sure if the current state is reachable with the transaction from the point we
   rollback to.
 -}
