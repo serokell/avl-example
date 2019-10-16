@@ -41,11 +41,17 @@ import System.Directory (removeDirectoryRecursive)
 type Name = String
 
 {-
-  We will define the keys for our storage. I choose such names for constructors because we use `Member` interface, which will recognise concrete keys as part of the whole `Keys` type. All keys should be declared that way.
+  We will define the keys for our storage. I choose such names for constructors
+  because we use `Member` interface, which will recognise concrete keys as part
+  of the whole `Keys` type. All keys should be declared that way.
 
-  Also, I recommend making the keys `data` types or `newtypes` - otherwise type inference might get a bit brittle.
+  Also, I recommend making the keys `data` types or `newtypes` - otherwise type
+  inference might get a bit brittle.
 
-  For this example, I will use `Data.Hashable` to provide hash algorithm - that's why there is a deriving of `Hashable`. For industrial use, you'd better equip some hash algo from `cryptonite` package. Hash collision attack are no joke.
+  For this example, I will use `Data.Hashable` to provide hash algorithm -
+  that's why there is a deriving of `Hashable`. For industrial use, you'd
+  better equip some hash algo from `cryptonite` package. Hash collision attack
+  are no joke.
 -}
 
 data Keys
@@ -68,7 +74,9 @@ instance Member Balance Keys where union = _K1
 instance Member Friends Keys where union = _K2
 
 {-
-  The same goes for values (except for comparison instances). Concrete value types can be just anything. Make sure all values are of different types, though.
+  The same goes for values (except for comparison instances). Concrete value
+  types can be just anything. Make sure all values are of different types,
+  though.
 -}
 
 data Values
@@ -83,7 +91,8 @@ instance Member  Word   Values where union = _V1
 instance Member [Name]  Values where union = _V2
 
 {-
-  And the last bit - we help type inference by specifying which key type is bound to which value type.
+  And the last bit - we help type inference by specifying which key type is
+  bound to which value type.
 -}
 
 instance Relates Balance  Word
@@ -107,14 +116,18 @@ instance Show Hash where
     . getHash
 
 {-
-  We plug that hash in. The best hash is one that has an instance for all standart types, or else you have to write 5 instances, for, let's say, quite mundane datatypes.
+  We plug that hash in. The best hash is one that has an instance for all
+  standart types, or else you have to write 5 instances, for, let's say, quite
+  mundane datatypes.
 -}
 
 instance Hashable a => AVL.ProvidesHash a Hash where
   getHash = Hash . hash
 
 {-
-  The datatypes are done, let's do it for actions. There is no limitation of what transaction can be. You can even make a different types for different kinds of transactions.
+  The datatypes are done, let's do it for actions. There is no limitation of
+  what transaction can be. You can even make a different types for different
+  kinds of transactions.
 -}
 
 data Transaction
@@ -123,7 +136,9 @@ data Transaction
    deriving stock (Eq, Show, Generic)
 
 {-
-  Another useful thing is exceptions, which could arise when you apply the transaction. We will define only one here (other being `NotFound`, which is already in the `avl-plus` package).
+  Another useful thing is exceptions, which could arise when you apply the
+  transaction. We will define only one here (other being `NotFound`, which is
+  already in the `avl-plus` package).
 -}
 
 data Overdraft = Overdraft
@@ -136,15 +151,29 @@ data Overdraft = Overdraft
 instance Exception Overdraft
 
 {-
-  Let's write an interpreter for our `Transaction` type. It should be a function that consumes a transaction and runs in a `CacheT` over any monad that can `Retrieve` parts of the tree from storage. The "any monad" part is crucial for allowing the _same_ interpreter to run on both light-clients and full-state clients.
+  Let's write an interpreter for our `Transaction` type. It should be a
+  function that consumes a transaction and runs in a `CacheT` over any monad
+  that can `Retrieve` parts of the tree from storage. The "any monad" part is
+  crucial for allowing the _same_ interpreter to run on both light-clients and
+  full-state clients.
 
-  This way, you get `requre`, `lookup`, `insert` and `delete` operations which operate on the global map (the AVL+-tree). While in `CacheT`, you can't change the storage; to do so, you must feed the `CacheT` computation into either `autoCommit` or `manualCommit`. If you do so with `manualCommit`, to actually apply changes you need _when you need_ to call `commit` there without any arguments inside `CacheT` context. The `manualCommit` is provided for the case you end with some pretty complex error recovery mechanism as a part of transaction application. I recommend sticking to `autoCommit`.
+  This way, you get `requre`, `lookup`, `insert` and `delete` operations which
+  operate on the global map (the AVL+-tree). While in `CacheT`, you can't
+  change the storage; to do so, you must feed the `CacheT` computation into
+  either `autoCommit` or `manualCommit`. If you do so with `manualCommit`, to
+  actually apply changes you need _when you need_ to call `commit` there
+  without any arguments inside `CacheT` context. The `manualCommit` is provided
+  for the case you end with some pretty complex error recovery mechanism as a
+  part of transaction application. I recommend sticking to `autoCommit`.
 
-  Note: If you call `commit` in a block once, you cannot `autoCommit` this block, the compiler won't let you.
+  Note: If you call `commit` in a block once, you cannot `autoCommit` this
+  block, the compiler won't let you.
 
-  In both cases, if an exception happens during evaluation, the state of the storage is restored to the one just before the call.
+  In both cases, if an exception happens during evaluation, the state of the
+  storage is restored to the one just before the call.
 
-  Therefore, if at any point the evaluation cannot proceed, you pretty much just `throwM` an exception.
+  Therefore, if at any point the evaluation cannot proceed, you pretty much
+  just `throwM` an exception.
 -}
 
 interpret
@@ -174,11 +203,17 @@ interpret tx = case tx of
 {-
   And we're done with business-logic part!
 
-  Let's see what can we do with all the things we declared above. The first opetation is to `recordProof` of the transaction, so I can be run on any node,even without a storage.
+  Let's see what can we do with all the things we declared above. The first
+  opetation is to `recordProof` of the transaction, so I can be run on any node,
+  even without a storage.
 
-  The proof is an excerpt from the storage with a size < `O(log2(N) * Changes)`, where `Changes` is a count of key-value pairs that were either written or read.
+  The proof is an excerpt from the storage with a size < `O(log2(N) * Changes)`,
+  where `Changes` is a count of key-value pairs that were either written or
+  read.
 
-  Recording produces a `Proven` transaction along with evaluation result (if any). The `Proven` datatype is exported openly and is `Generic`, so you can make it serialisable.
+  Recording produces a `Proven` transaction along with evaluation result (if
+  any). The `Proven` datatype is exported openly and is `Generic`, so you can
+  make it serialisable.
 -}
 
 recordTxs
@@ -190,7 +225,8 @@ recordTxs txs = do
     record_ tx interpret
 
 {-
-  Second thing we can do is to apply the transaction. Note: we're not commiting anything yet, the changes and new state are still in the cache.
+  Second thing we can do is to apply the transaction. Note: we're not commiting
+  anything yet, the changes and new state are still in the cache.
 -}
 
 consumeTxs
@@ -202,7 +238,10 @@ consumeTxs txs = do
     apply tx interpret
 
 {-
-  Third thing is to roll back; and yes, we do it with the same interpreter we _commit_ the transaction. The interpreter is needed because we need to be sure if the current state is reachable with the transaction from the point we rollback to.
+  Third thing is to roll back; and yes, we do it with the same interpreter we
+  _commit_ the transaction. The interpreter is needed because we need to be
+  sure if the current state is reachable with the transaction from the point we
+  rollback to.
 -}
 
 rollbackTxs
@@ -216,7 +255,10 @@ rollbackTxs txs = do
 {-
   That's all we can do; lets define our nodes.
 
-  The light-client (or just `Client`) goes first. It only stores the root hash of the AVL+-tree and can roll back via `Catch`. It can't read or write into storage, because there isn't any underneath it. So, we `throwM` on reads and ignore writes.
+  The light-client (or just `Client`) goes first. It only stores the root hash
+  of the AVL+-tree and can roll back via `Catch`. It can't read or write into
+  storage, because there isn't any underneath it. So, we `throwM` on reads and
+  ignore writes.
 -}
 
 type ClientNode = StateT Hash Catch
@@ -239,7 +281,9 @@ runOnClient initial action =
 {-
   The full-state node (or `Server` node) definition is more mouthful.
 
-  We will use Redis for simplicity, but any key-value storage can be used instead. You can even employ remote storage solution. After all, the inner scheme of storing prevents data corruption.
+  We will use Redis for simplicity, but any key-value storage can be used
+  instead. You can even employ remote storage solution. After all, the inner
+  scheme of storing prevents data corruption.
 -}
 
 newtype ServerNode a = ServerNode
@@ -270,7 +314,8 @@ instance MonadFail DB.Redis where
   fail = DB.reRedis . Fail.fail
 
 {-
-  I will omit the source of these two methods. They are short though and they do exactly what you'd expect them to do.
+  I will omit the source of these two methods. They are short though and they
+  do exactly what you'd expect them to do.
 -}
 
 encode :: Serialise a => a -> SBS.ByteString
@@ -330,7 +375,8 @@ runOnRedisShard dbName action = do
   runServerNode action `runReaderT` coerce (SBSC.pack dbName)
 
 {-
-  These two methods are used as a part of example test application to visualise the process.
+  These two methods are used as a part of example test application to visualise
+  the process.
 -}
 
 printState
@@ -412,7 +458,8 @@ test = do
     genesis initialData
 
   {-
-    We can start recording transactions now. Transaction recorded is being applied at the same time.
+    We can start recording transactions now. Transaction recorded is being
+    applied at the same time.
   -}
   Just (ptxs) <- runOnRedisShard "test" do
     ptxs <- tryCase "Making good txs" do
