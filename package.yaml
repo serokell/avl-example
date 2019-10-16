@@ -2,29 +2,33 @@
 executables:
   avl-example:
     main: Example.hs
+
     dependencies:
-      - AVL
-      - base
-      - bytestring
-      - containers
-      - data-default
-      - directory
-      - exceptions
-      - hashable
-      - lens
-      - mtl
-      - rocksdb-haskell
-      - serialise
+    - AVL
+    - base
+    - bytestring
+    - containers
+    - data-default
+    - directory
+    - exceptions
+    - hashable
+    - hedis
+    - lens
+    - mtl
+    - serialise
+
     default-extensions:
-      - DeriveGeneric
-      - DeriveAnyClass
-      - DerivingStrategies
-      - FlexibleInstances
-      - GeneralizedNewtypeDeriving
-      - MultiParamTypeClasses
-      - ViewPatterns
-      - FlexibleContexts
-      - TypeApplications
-      - ConstraintKinds
-      - MonoLocalBinds
-      - TemplateHaskell
+    - DataKinds
+    - DeriveGeneric
+    - DeriveAnyClass
+    - DerivingStrategies
+    - FlexibleInstances
+    - GeneralizedNewtypeDeriving
+    - MultiParamTypeClasses
+    - ViewPatterns
+    - FlexibleContexts
+    - TypeApplications
+    - ConstraintKinds
+    - MonoLocalBinds
+    - TemplateHaskell
+    - BlockArguments

@@ -6,18 +6,18 @@
 packages:
 - completed:
     cabal-file:
-      size: 2940
-      sha256: f3505d981e3e24dd92588a9055696c06c686b0ad6ddb6572a7697450cdfe10d6
+      size: 2976
+      sha256: d7c3dff9aafd254cbe95b878e247e6e7fe1fb4e86aeac30a7d7430438cc9ce97
     name: AVL
     version: 1.5.0.0
     git: https://github.com/serokell/avl-plus.git
     pantry-tree:
-      size: 1983
-      sha256: b39408b15645236ca182ee10dc33a5cc6d6c5272137ddac7405abf83e8c60d5d
-    commit: 923b6baab32cc94615933893cea4112e2d8cd6e2
+      size: 1989
+      sha256: ca630174f6299820bac7112d02ea4d926a288335d1a780fc5a905d4a50e13af9
+    commit: a5a6d7f8a545b285737b4f1b14fe5b137bcf7032
   original:
     git: https://github.com/serokell/avl-plus.git
-    commit: 923b6baab32cc94615933893cea4112e2d8cd6e2
+    commit: a5a6d7f8a545b285737b4f1b14fe5b137bcf7032
 - completed:
     cabal-file:
       size: 860

@@ -39,7 +39,7 @@ packages:
 # (e.g., acme-missiles-0.3)
 extra-deps:
 - git: https://github.com/serokell/avl-plus.git
-  commit: 923b6baab32cc94615933893cea4112e2d8cd6e2
+  commit: a5a6d7f8a545b285737b4f1b14fe5b137bcf7032
 - git: https://github.com/serokell/zipp.git
   commit: 3c55c887845a01d12874264bf0af1cb21f9e6d5f
 
