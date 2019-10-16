@@ -25,9 +25,9 @@ import qualified Data.ByteString.Lazy  as LBS
 import qualified Data.Map as Map
 
 import Data.Blockchain.Storage.AVL
-  ( Proven, record, apply, rollback
+  ( Proven, apply, rollback
   , insert, delete, lookup, require
-  , autoCommit, record_
+  , autoCommit, recordProof_
   , CacheT, Commit (..), try, genesis, pair
   )
 import qualified Data.Tree.AVL as AVL
@@ -236,7 +236,7 @@ recordTxs
   -> CacheT 'Auto Hash Keys Values m [Proven Hash Keys Values Transaction]
 recordTxs txs = do
   for txs \tx -> do
-    record_ tx interpret
+    recordProof_ tx interpret
 
 {-
   Second thing we can do is to apply the transaction. Note: we're not
