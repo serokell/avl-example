@@ -75,8 +75,7 @@ instance Member Friends Keys where union = _K2
 
 {-
   The same goes for values (except for comparison instances). Concrete value
-  types can be just anything. Make sure all values are of different types,
-  though.
+  types can be just anything.
 -}
 
 data Values
@@ -92,7 +91,7 @@ instance Member [Name]  Values where union = _V2
 
 {-
   And the last bit - we help type inference by specifying which key type is
-  bound to which value type.
+  bound to which value type. Under "help" I mean it won't work otherwise.
 -}
 
 instance Relates Balance  Word
@@ -125,9 +124,15 @@ instance Hashable a => AVL.ProvidesHash a Hash where
   getHash = Hash . hash
 
 {-
-  The datatypes are done, let's do it for actions. There is no limitation of
-  what transaction can be. You can even make a different types for different
+  The datatypes are done, let's do it for action typess. There is no limitation
+  of what transaction can be. You can even make a different types for different
   kinds of transactions.
+
+  You can add gas costs or make it into some opcode VM, if you like.
+
+  The block can be modelled as another type of transaction, where you apply "normal" transactions and check Proof-of-Work or Proof-of-Stake.
+
+  The generation of Work/Stake proofs is out of scope for this library and this example. The "proof" in this text means "AVL+-proof", which is completely different thing.
 -}
 
 data Transaction
@@ -151,7 +156,7 @@ data Overdraft = Overdraft
 instance Exception Overdraft
 
 {-
-  Let's write an interpreter for our `Transaction` type. It should be a
+  Let's write an interpreter for our `Transaction` type. It has be a
   function that consumes a transaction and runs in a `CacheT` over any monad
   that can `Retrieve` parts of the tree from storage. The "any monad" part is
   crucial for allowing the _same_ interpreter to run on both light-clients and
@@ -161,10 +166,12 @@ instance Exception Overdraft
   operate on the global map (the AVL+-tree). While in `CacheT`, you can't
   change the storage; to do so, you must feed the `CacheT` computation into
   either `autoCommit` or `manualCommit`. If you do so with `manualCommit`, to
-  actually apply changes you need _when you need_ to call `commit` there
-  without any arguments inside `CacheT` context. The `manualCommit` is provided
-  for the case you end with some pretty complex error recovery mechanism as a
-  part of transaction application. I recommend sticking to `autoCommit`.
+  actually apply changes you need to call `commit` when you need it without any
+  arguments inside `CacheT` context. The `manualCommit` is provided for the
+  case you end with some pretty complex error recovery mechanism as a part of
+  transaction application.
+
+  I recommend sticking to `autoCommit`.
 
   Note: If you call `commit` in a block once, you cannot `autoCommit` this
   block, the compiler won't let you.
@@ -178,7 +185,8 @@ instance Exception Overdraft
 
 interpret
   :: AVL.Retrieves Hash Keys Values m
-  => Transaction -> CacheT c Hash Keys Values m ()
+  => Transaction
+  -> CacheT c Hash Keys Values m ()
 interpret tx = case tx of
   Pay from to (fromIntegral -> amount) -> do
     src  <- require (Balance from)
@@ -201,19 +209,19 @@ interpret tx = case tx of
     insert (Friends to) (friend : src)
 
 {-
-  And we're done with business-logic part!
+  And we're done with the business-logic part!
 
   Let's see what can we do with all the things we declared above. The first
   opetation is to `recordProof` of the transaction, so I can be run on any node,
-  even without a storage.
+  even the one without any storage.
 
   The proof is an excerpt from the storage with a size < `O(log2(N) * Changes)`,
   where `Changes` is a count of key-value pairs that were either written or
-  read.
+  read. If there is 1 G of key-value pairs and 20 were changed, the proof would contain below 20 * 30 tree nodes.
 
   Recording produces a `Proven` transaction along with evaluation result (if
   any). The `Proven` datatype is exported openly and is `Generic`, so you can
-  make it serialisable.
+  derive some serialisation.
 -}
 
 recordTxs
@@ -225,8 +233,8 @@ recordTxs txs = do
     record_ tx interpret
 
 {-
-  Second thing we can do is to apply the transaction. Note: we're not commiting
-  anything yet, the changes and new state are still in the cache.
+  Second thing we can do is to apply the transaction. Note: we're not
+  _commiting_ anything yet, the changes and new state are still in the cache.
 -}
 
 consumeTxs
@@ -299,7 +307,9 @@ newtype ServerNode a = ServerNode
     )
 
 {-
-  Why.
+  Redis, why aren't you already?
+
+  If I want some custom error handling, I'd wrap it in newtype anyway.
 -}
 
 instance MonadThrow DB.Redis where
@@ -316,6 +326,8 @@ instance MonadFail DB.Redis where
 {-
   I will omit the source of these two methods. They are short though and they
   do exactly what you'd expect them to do.
+
+  They are ugly because `Codec.Serialise` and `Redis` use different types of `Bytestrings`.
 -}
 
 encode :: Serialise a => a -> SBS.ByteString
@@ -359,6 +371,12 @@ instance AVL.Retrieves Hash Keys Values ServerNode where
   retrieve h = do
     node <- readKVS h
     maybe (AVL.notFound h) return node
+
+{-
+  It is crucial to throw `AVL.NoRootExists` here, not `AVL.NotFound`.
+
+  TODO: make this method return `Maybe hash` instead.
+-}
 
 instance AVL.Appends Hash Keys Values ServerNode where
   getRoot = do
@@ -429,6 +447,8 @@ instance Show (Omitted a) where
   show _ = "<omitted>"
 
 {-
+  Warning, this method wipes out the Redis database!
+
   We will test on two nodes, both of which are full-state Redis-based ones.
 
   Let's see, how does it work together:
@@ -437,7 +457,7 @@ test = do
   DB.flushdb
 
   {-
-    First, we need to initialise both with identical data.
+    First, we need to initialise both nodes with identical data.
   -}
   let
     initialData =
@@ -458,28 +478,31 @@ test = do
     genesis initialData
 
   {-
-    We can start recording transactions now. Transaction recorded is being
-    applied at the same time.
+    We can start recording transactions now (transaction recorded is being
+    applied at the same time).
+
+    Note: no morally ambiguos thing is happening in the transaction.
   -}
-  Just (ptxs) <- runOnRedisShard "test" do
-    ptxs <- tryCase "Making good txs" do
+  Just ptxs <- runOnRedisShard "test" do
+    tryCase "Making good txs" do
       recordTxs
         [ Pay       { tFrom = "Vasua", tTo = "Petua", tAmount = 200 }
         , AddFriend { tAdd  = "Vasua", tTo = "Petua" }
         ]
-    return ptxs
 
+  {-
+    TODO: find why the following block fails.
+  -}
   runOnRedisShard "test2" do
     tryCase "Applying good txs" do
       consumeTxs ptxs
 
   ptxs' <- runOnRedisShard "test" $ do
-    ptxs <- autoCommit do
+    autoCommit do
       recordTxs
         [ Pay       { tFrom = "Vasua",   tTo = "Petua", tAmount = 100 }
         , AddFriend { tAdd  = "Maloney", tTo = "Petua" }
         ]
-    return ptxs
 
   runOnRedisShard "test2" do
     tryCase "Applying other txs" do
