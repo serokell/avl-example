@@ -5,8 +5,10 @@ executables:
 
     dependencies:
     - AVL
+    - aeson
     - base
     - bytestring
+    - cborg
     - containers
     - data-default
     - directory
@@ -16,6 +18,7 @@ executables:
     - lens
     - mtl
     - serialise
+    - text
 
     default-extensions:
     - DataKinds

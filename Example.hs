@@ -1,9 +1,7 @@
 
 module Example where
 
-import Codec.Serialise (Serialise, serialise, deserialiseOrFail)
-
-import Control.Arrow ((***))
+import Control.Arrow ((***), first)
 import Control.Lens (makePrisms, (#))
 import Control.Monad
 import Control.Monad.Catch.Pure hiding (try)
@@ -12,6 +10,7 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader
 import Control.Monad.State
 
+import Data.Aeson hiding (decode')
 import Data.Coerce
 import Data.Default (def)
 import Data.Foldable (for_)
@@ -19,6 +18,7 @@ import Data.Hashable (Hashable (hash))
 import Data.Relation (Relates)
 import Data.Traversable (for)
 import Data.Union (Member (union))
+import qualified Data.Text as Text
 import qualified Data.ByteString       as SBS
 import qualified Data.ByteString.Char8 as SBSC
 import qualified Data.ByteString.Lazy  as LBS
@@ -29,6 +29,7 @@ import Data.Blockchain.Storage.AVL
   , insert, delete, lookup, require
   , autoCommit, recordProof_
   , CacheT, Commit (..), try, genesis, pair
+  , inCacheT
   )
 import qualified Data.Tree.AVL as AVL
 
@@ -58,15 +59,15 @@ data Keys
   = K1 Balance
   | K2 Friends
   deriving stock    (Eq, Ord, Show, Generic)
-  deriving anyclass (Hashable, Serialise)
+  deriving anyclass (Hashable, ToJSON, FromJSON)
 
-newtype Balance = Balance { getBalance :: Name }
+newtype Balance = Balance Name
   deriving stock   (Eq, Ord, Show, Generic)
-  deriving anyclass (Hashable, Serialise)
+  deriving anyclass (Hashable, ToJSON, FromJSON)
 
-newtype Friends = Friends { getFriends :: Name }
+newtype Friends = Friends Name
   deriving stock    (Eq, Ord, Show, Generic)
-  deriving anyclass (Hashable, Serialise)
+  deriving anyclass (Hashable, ToJSON, FromJSON)
 
 makePrisms ''Keys
 
@@ -82,7 +83,7 @@ data Values
   = V1  Word
   | V2 [Name]
   deriving stock    (Show, Generic)
-  deriving anyclass (Hashable, Serialise)
+  deriving anyclass (Hashable, ToJSON, FromJSON)
 
 makePrisms ''Values
 
@@ -101,18 +102,22 @@ instance Relates Friends [Name]
   As I've said, we using the simplest hash available for our example.
 -}
 
-newtype Hash = Hash { getHash :: Int }
+newtype Hash = Hash { getHash :: String }
   deriving stock   (Eq, Ord, Generic)
-  deriving newtype (Hashable, Serialise)
+  deriving newtype (Hashable, ToJSON, FromJSON)
 
 instance Show Hash where
-  show
-    = reverse
-    . map     ("0123456789abcdef" !!)
-    . take      16
-    . map     (`mod` 16)
-    . iterate (`div` 16)
-    . getHash
+  show (Hash h) = h
+
+toBase64
+  = ("#" ++)
+  . reverse
+  . map     (base64 !!)
+  . take      6
+  . map     (`mod` 64)
+  . iterate (`div` 64)
+
+base64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 {-
   We plug that hash in. The best hash is one that has an instance for all
@@ -121,7 +126,7 @@ instance Show Hash where
 -}
 
 instance Hashable a => AVL.ProvidesHash a Hash where
-  getHash = Hash . hash
+  getHash = Hash . toBase64 . hash
 
 {-
   The datatypes are done, let's do it for action typess. There is no limitation
@@ -139,8 +144,8 @@ instance Hashable a => AVL.ProvidesHash a Hash where
 -}
 
 data Transaction
-  = Pay       { tFrom :: Name, tTo :: Name, tAmount :: Word }
-  | AddFriend { tAdd  :: Name, tTo :: Name }
+  = Pay       Name Name Word
+  | AddFriend Name Name
    deriving stock (Eq, Show, Generic)
 
 {-
@@ -336,36 +341,42 @@ instance MonadFail DB.Redis where
   They are ugly because `Codec.Serialise` and `Redis` use different types of `Bytestrings`.
 -}
 
-encode :: Serialise a => a -> SBS.ByteString
-encode = LBS.toStrict . serialise
+encode' :: ToJSON a => a -> SBS.ByteString
+encode' = LBS.toStrict . encode
 
-decode :: Serialise a => SBS.ByteString -> Maybe a
-decode = either (const Nothing) Just . deserialiseOrFail . LBS.fromStrict
+decode' :: FromJSON a => SBS.ByteString -> Maybe a
+decode' = decode . LBS.fromStrict
 
 readKVS
-  :: (Serialise k, Serialise v, Show k)
+  :: (ToJSON k, FromJSON v, Show k)
   => k
   -> ServerNode (Maybe v)
 readKVS h = do
   prefix <- ServerNode ask
   eVal   <- ServerNode $ lift do
-    DB.get (prefix <> encode h)
+    DB.get (prefix <> encode' h)
 
   case eVal of
     Right it -> do
-      return (it >>= decode)
+      return (it >>= decode')
 
     _ ->
       AVL.notFound h
 
 writeKVS
-  :: (Serialise k, Serialise v)
+  :: (ToJSON k, ToJSON v, Show k, Show v)
   => [(k, v)]
   -> ServerNode ()
 writeKVS kvs = do
+  liftIO do
+    putStrLn ""
+    putStrLn "#########################"
+    mapM_ print kvs
+    putStrLn "#########################"
+    putStrLn ""
   prefix <- ServerNode ask
   _ <- ServerNode $ lift do
-    DB.mset (map (((prefix <>) . encode) *** encode) kvs)
+    DB.mset (map (((prefix <>) . encode') *** encode') kvs)
 
   return ()
 
@@ -407,20 +418,24 @@ printState
   :: AVL.Appends Hash Keys Values m
   => MonadIO m
   => String
+  -> Bool
   -> m ()
-printState msg = do
+printState msg dump = do
   root <- AVL.currentRoot
 
   liftIO do
     putStrLn ("  " ++ msg ++ ":")
     putStrLn ("    root hash: " ++ show (AVL.rootHash root))
-    putStrLn  "    keys/values: "
 
-  list <- AVL.toList root
+  when True $ do
+    liftIO do
+      putStrLn  "    keys/values: "
 
-  liftIO do
-    for_ list \(k, v) ->
-      putStrLn ("      " ++ show k ++ ": " ++ show v)
+    list <- AVL.toList root
+
+    liftIO do
+      for_ list \(k, v) ->
+        putStrLn ("      " ++ show k ++ ": " ++ show v)
 
 tryCase
   :: AVL.Appends Hash Keys Values m
@@ -435,19 +450,28 @@ tryCase msg action = do
     putStrLn   msg
     putStrLn  "=="
 
-  printState "before"
+  printState "before" False
 
   res <- try $ autoCommit action
-
-  printState "after"
 
   liftIO do
     putStrLn  "  result:"
     putStrLn ("    " ++ show res)
 
+  printState "after" False
+
   return (either (const Nothing) Just res)
 
 newtype Omitted a = Omitted a
+
+-- -- dumpWholeTree :: (AVL.Appends Hash Keys Values m, MonadIO m) => m ()
+-- dumpWholeTree = do
+--   root <- inCacheT $ AVL.currentRoot
+--   ((), set) <- inCacheT $ AVL.fold ((), flip const, id) root
+--   tree <- inCacheT $ AVL.prune set root
+--   liftIO $ putStrLn "###########################"
+--   liftIO (print tree)
+--   liftIO $ putStrLn "###########################"
 
 instance Show (Omitted a) where
   show _ = "<omitted>"
@@ -474,10 +498,10 @@ test = do
       , pair (Friends "Vasua",   [])
 
       , pair (Balance "Maloney", 10)
-      , pair (Friends "Maloney", [])
+      , pair (Friends "Maloney", ["Kesha"])
       ]
 
-  runOnRedisShard "test" do
+  runOnRedisShard "test1" do
     genesis initialData
 
   runOnRedisShard "test2" do
@@ -489,57 +513,60 @@ test = do
 
     Note: no morally ambiguos thing is happening in the transaction.
   -}
-  Just ptxs <- runOnRedisShard "test" do
-    tryCase "Making good txs" do
+  Just ptxs <- runOnRedisShard "test1" do
+    tryCase "Making good txs (1)" do
       recordTxs
-        [ Pay       { tFrom = "Vasua", tTo = "Petua", tAmount = 200 }
-        , AddFriend { tAdd  = "Vasua", tTo = "Petua" }
+        [ Pay       "Vasua" "Petua" 200
+        , AddFriend "Vasua" "Petua"
         ]
-
   {-
     TODO: find why the following block fails.
   -}
   runOnRedisShard "test2" do
-    tryCase "Applying good txs" do
+    tryCase "Applying good txs (2)" do
       consumeTxs ptxs
 
-  ptxs' <- runOnRedisShard "test" $ do
-    autoCommit do
-      recordTxs
-        [ Pay       { tFrom = "Vasua",   tTo = "Petua", tAmount = 100 }
-        , AddFriend { tAdd  = "Maloney", tTo = "Petua" }
-        ]
+  liftIO $ print "HERE"
 
-  runOnRedisShard "test2" do
-    tryCase "Applying other txs" do
-      consumeTxs ptxs'
+  -- ptxs' <- runOnRedisShard "test1" $ do
+  --   printState "before autocommit" True
+  --   liftIO $ print "THERE"
+  --   autoCommit do
+  --     recordTxs
+  --       [ Pay       { tFrom = "Vasua",   tTo = "Petua", tAmount = 100 }
+  --       , AddFriend { tAdd  = "Maloney", tTo = "Petua" }
+  --       ]
 
-  runOnRedisShard "test" do
-    tryCase "Rolling back wrong txs" do
-      rollbackTxs ptxs
+  -- runOnRedisShard "test2" do
+  --   tryCase "Applying other txs (2)" do
+  --     consumeTxs ptxs'
 
-  Nothing <- runOnRedisShard "test" do
-    tryCase "Making bad txs#1" do
-      recordTxs
-        [ Pay       { tFrom = "Maloney", tTo = "Petua", tAmount = 200 }
-        , AddFriend { tAdd  = "Vasua",   tTo = "Petua" }
-        ]
+  -- runOnRedisShard "test1" do
+  --   tryCase "Rolling back wrong txs (1)" do
+  --     rollbackTxs ptxs
 
-    tryCase "Making bad txs#2" do
-      recordTxs
-        [ Pay       { tFrom = "Maloney", tTo = "Petua", tAmount = 10 }
-        , AddFriend { tAdd  = "Haxxor",  tTo = "Petua" }
-        ]
+  -- Nothing <- runOnRedisShard "test1" do
+  --   tryCase "Making bad txs#1 (1)" do
+  --     recordTxs
+  --       [ Pay       { tFrom = "Maloney", tTo = "Petua", tAmount = 200 }
+  --       , AddFriend { tAdd  = "Vasua",   tTo = "Petua" }
+  --       ]
 
-  runOnRedisShard "test" do
-    tryCase "Rolling back good txs" do
-      rollbackTxs ptxs'
+  --   tryCase "Making bad txs#2 (2)" do
+  --     recordTxs
+  --       [ Pay       { tFrom = "Maloney", tTo = "Petua", tAmount = 10 }
+  --       , AddFriend { tAdd  = "Haxxor",  tTo = "Petua" }
+  --       ]
 
-  runOnRedisShard "test" do
-    tryCase "Rolling back now good txs" do
-      rollbackTxs ptxs
+  -- runOnRedisShard "test1" do
+  --   tryCase "Rolling back good txs (1)" do
+  --     rollbackTxs ptxs'
 
-  return ()
+  -- runOnRedisShard "test1" do
+  --   tryCase "Rolling back now good txs (1)" do
+  --     rollbackTxs ptxs
+
+  -- return ()
 
 main = do
   conn <- DB.checkedConnect DB.defaultConnectInfo
